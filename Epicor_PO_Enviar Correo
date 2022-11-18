@@ -1,0 +1,184 @@
+// **************************************************
+// Custom code for POEntryForm
+// Created: 10/11/2022 9:22:23 p. m.
+// **************************************************
+
+extern alias Erp_Contracts_BO_Vendor;
+extern alias Erp_Contracts_BO_Part;
+extern alias Erp_Contracts_BO_Company;
+extern alias Erp_Contracts_BO_VendorPPSearch;
+extern alias Erp_Contracts_BO_VendCntSearch;
+extern alias Erp_Contracts_BO_PO;
+extern alias Erp_Contracts_BO_MiscShip;
+extern alias Erp_Contracts_BO_Receipt;
+extern alias Erp_Contracts_BO_JobEntry;
+extern alias Erp_Contracts_BO_JobMtlSearch;
+extern alias Erp_Contracts_BO_Plant;
+extern alias Erp_Contracts_Rpt_POForm;
+extern alias Ice_Contracts_BO_ReportMonitor;
+
+using System;
+using System.ComponentModel;
+using System.Data;
+using System.Diagnostics;
+using System.Windows.Forms;
+using Erp.Adapters;
+using Erp.UI;
+using Ice.Lib;
+using Ice.Adapters;
+using Ice.Lib.Customization;
+using Ice.Lib.ExtendedProps;
+using Ice.Lib.Framework;
+using Ice.Lib.Searches;
+using Ice.UI.FormFunctions;
+using Ice.Core;
+using Erp.Proxy.BO;
+
+public class Script
+{
+	// ** Wizard Insert Location - Do Not Remove 'Begin/End Wizard Added Module Level Variables' Comments! **
+	// Begin Wizard Added Module Level Variables **
+
+	// End Wizard Added Module Level Variables **
+
+	private string UserID = string.Empty;
+	// Add Custom Module Level Variables Here **
+
+	public void InitializeCustomCode()
+	{
+		// ** Wizard Insert Location - Do not delete 'Begin/End Wizard Added Variable Initialization' lines **
+		// Begin Wizard Added Variable Initialization
+
+		// End Wizard Added Variable Initialization
+		UserID = ((Session)this.oTrans.Session).UserID.ToString();
+		// Begin Wizard Added Custom Method Calls
+
+		this.epiButtonC1.Click += new System.EventHandler(this.epiButtonC1_Click);
+		// End Wizard Added Custom Method Calls
+	}
+
+	public void DestroyCustomCode()
+	{
+		// ** Wizard Insert Location - Do not delete 'Begin/End Wizard Added Object Disposal' lines **
+		// Begin Wizard Added Object Disposal
+
+		this.epiButtonC1.Click -= new System.EventHandler(this.epiButtonC1_Click);
+		// End Wizard Added Object Disposal
+
+		// Begin Custom Code Disposal
+
+		// End Custom Code Disposal
+	}
+
+	private void epiButtonC1_Click(object sender, System.EventArgs args)
+	{
+		// ** Place Event Handling Code Here **
+		EpiDataView edvPOHeader = (EpiDataView)oTrans.EpiDataViews["POHeader"];
+		EpiDataView edvVendor = (EpiDataView)oTrans.EpiDataViews["Vendor"];
+		int PONUM;
+		string Approved;
+		string Supplier;
+		string CurrentCompany;
+		string VendorEmail = string.Empty;
+		
+		// check if there is data loaded into the form. if not return from method.
+		if ( (bool)edvPOHeader.HasRow == false )
+		{
+						MessageBox.Show("There is no data present to email");
+						return;
+		}
+
+		// Get data from the form
+		Approved = (string)edvPOHeader.dataView[edvPOHeader.Row]["ApprovalStatus"];
+		PONUM = (int)edvPOHeader.dataView[edvPOHeader.Row]["PONum"];
+		Supplier = (string)edvPOHeader.dataView[edvPOHeader.Row]["VendorVendorID"];
+		CurrentCompany = (string)edvPOHeader.dataView[edvPOHeader.Row]["Company"];
+		
+		if (Approved == "A")
+		{
+				// check the supplier has an email address in Purchase Point.
+				// grab the email address textbox (this textbox is a customisation) so we can check and get the address if it is there.....
+				string PPemailAddress = string.Empty;
+				string UseremailAddress = string.Empty;
+
+				
+				Ice.Proxy.BO.UserFileImpl userBO = WCFServiceSupport.CreateImpl<Ice.Proxy.BO.UserFileImpl>((Ice.Core.Session)oTrans.Session, Epicor.ServiceModel.Channels.ImplBase<Ice.Contracts.UserFileSvcContract>.UriPath);
+				try
+					{
+               	 var user = userBO.GetByID(UserID);
+					UseremailAddress = Convert.ToString(user.UserFile[0].EMailAddress);
+					}
+				catch
+					{
+					MessageBox.Show("Could not add requestors email address to email, user  not found in Epicor.");
+					}					
+					
+
+				PPemailAddress = (string)edvVendor.dataView[edvVendor.Row]["EMailAddress"];;  //Supplier email address is in this Textbox.
+				if (PPemailAddress == "")
+				{
+                    MessageBox.Show("No Email address. Add address to Supplier Purchase Point");
+                    return;  // bailout - no email address...
+				}
+
+				Erp.Proxy.Rpt.POFormImpl Form = WCFServiceSupport.CreateImpl<Erp.Proxy.Rpt.POFormImpl>((Ice.Core.Session)oTrans.Session, Epicor.ServiceModel.Channels.ImplBase<Erp.Contracts.POFormSvcContract>.UriPath);
+
+				// Make the report from the PO data
+				Erp.Rpt.POFormDataSet POFormDS = Form.GetNewParameters();
+
+				// set the PO number and report style and submit the form to the system agent.
+				POFormDS.POFormParam[0].PONum = PONUM;
+				POFormDS.POFormParam[0].ReportStyleNum = 1002;
+				
+				Guid workstationid = Guid.NewGuid();  // Put a GUID in the workstationId to allow searching for the report later.
+				POFormDS.POFormParam[0].WorkstationID = String.Format("{0}",workstationid);			 // Using a GUID as the WorkstationID so it is easy to reteive this report
+				POFormDS.POFormParam[0].DateFormat = "dd/MM/yy";
+				POFormDS.POFormParam[0].ArchiveCode = 1;
+				POFormDS.POFormParam[0].AgentID = "SystemTaskAgent";
+				POFormDS.POFormParam[0].NumericFormat = ",.";
+				POFormDS.POFormParam[0].FaxSubject = "Esto es una Prueba OC -> ";
+				POFormDS.POFormParam[0].EMailTo = PPemailAddress;
+				POFormDS.POFormParam[0].EMailCC = UseremailAddress;
+				POFormDS.POFormParam[0].EMailBody = "SystemTaskAgent";
+				POFormDS.POFormParam[0].AttachmentType = "PDF";
+				POFormDS.POFormParam[0].SSRSRenderFormat = "PDF";
+				POFormDS.POFormParam[0].AutoAction = "SSRSPrint";
+				//MessageBox.Show("Submit to System Agent ...");
+				Form.SubmitToAgent(POFormDS, "SystemTaskAgent", 0, 0, "Erp.UIRpt.POForm");   //Submit the report to be generate by the system agent.
+				
+
+				// get report data. Make a ReportMonitor, use it to get a reportmonitor dataset. The reportmonitor dataset will have the sysrowID of the report
+				// we want, we can then use the sysrowID to get the report data to put into the SSRS report.
+				Ice.Proxy.BO.ReportMonitorImpl RM = WCFServiceSupport.CreateImpl<Ice.Proxy.BO.ReportMonitorImpl>((Ice.Core.Session)oTrans.Session, Epicor.ServiceModel.Channels.ImplBase<Ice.Contracts.ReportMonitorSvcContract>.UriPath);
+		
+				int timer=0;
+				
+				bool morepages;
+				Ice.BO.SysRptLstListDataSet RptList;
+				RptList = RM.GetList(@"WorkStationID ='"+workstationid+"'", 0, 0, out morepages);
+
+				while (RptList.SysRptLstList.Count == 0 ) // setup a loop to look for when the report has been generated.
+					{					
+					System.Threading.Thread.Sleep(500);
+					timer = timer + 1;
+					if (timer > 120)
+						{
+						MessageBox.Show("Attempts to generate a PO pdf has timed-out. Please try again, and if that does not work, contact ERP Support");
+						return;
+						}
+					MessageBox.Show("Email sent PO pdf");
+					RptList = RM.GetList(@"WorkStationID ='"+workstationid+"'", 0, 0, out morepages);
+					}
+
+				
+
+
+					
+					
+		}
+		else{
+			MessageBox.Show("PO must be approved before it can be sent out");
+
+			}
+	}
+}
